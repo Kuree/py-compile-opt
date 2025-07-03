@@ -33,4 +33,5 @@ def StackUnchanged : NativeOpTrait<"StackUnchanged"> {
   let cppNamespace = "::mlir::pyc";
 }
 
+#define INCLUDE_TABLEGEN
 include "mlir/Dialect/Pyc/IR/GeneratedOps.td"

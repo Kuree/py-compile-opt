@@ -7,7 +7,7 @@
 #include "mlir/IR/OpImplementation.h"
 
 // Dialect
-#include "mlir/Dialect/Pyc/IR/PycDialect.h.inc"
+#include "mlir/Dialect/Pyc/IR/PycOpsDialect.h.inc"
 
 // Interfaces
 #include "mlir/Dialect/Pyc/IR/PycOpsInterfaces.h.inc"

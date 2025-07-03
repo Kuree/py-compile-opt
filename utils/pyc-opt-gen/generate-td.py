@@ -60,6 +60,9 @@ def parse_opt_defs(include_path: str) -> Dict[str, PycOp]:
         # no repeat
         if value in opcodes:
             continue
+        # don't include pseudo op
+        if value >= 256:
+            continue
         opcodes.add(value)
         # not interested in NB_
         if name.startswith("NB_"):
@@ -104,7 +107,10 @@ def parse_opt_nums(op_defs: Dict[str, PycOp]):
 
 
 def generate_td(filename: str, op_defs: Dict[str, PycOp]):
-    content = ""
+    # generate header
+    content = """
+#ifdef INCLUDE_TABLEGEN
+    """
 
     for _, op_def in op_defs.items():
         content += "def " + op_def.op_name+ " : Pyc_CodeOp<\"" + op_def.asm_name + "\", ["
@@ -126,7 +132,7 @@ def generate_td(filename: str, op_defs: Dict[str, PycOp]):
         if len(traits) > 0:
             content += ", ".join(traits) + ", "
         # stack interface
-        content += "StackInterface]> {"
+        content += "StackInterface, SerializableInterface]> {"
 
         # op interface
         if not op_def.pop_stack:
@@ -146,10 +152,31 @@ def generate_td(filename: str, op_defs: Dict[str, PycOp]):
   let extraClassDeclaration = [{{
     int32_t getNumOfStackPopped() {{ {pop_code} }}
     int32_t getNumOfStackPushed() {{ {push_code} }}
+    std::pair<uint8_t, uint8_t> serialize() {{ return {{{op_def.value}, static_cast<uint8_t>(getOpArg().getInt() & 0xFF)}}; }}
   }}];
 """
 
         content += "}\n\n"
+
+    content += """
+#endif // INCLUDE_TABLEGEN
+    """
+
+    # generate parser code
+    content += """
+#ifdef GENERATE_PARSER
+
+    ::mlir::StringRef opName;
+    switch (opCode) {"""
+    for [_, op_def] in op_defs.items():
+        content += f"""
+    case ({op_def.value}):
+        opName = "{op_def.asm_name}";
+        break;"""
+    content += """default: return nullptr;
+    }
+#endif // GENERATE_PARSER    
+    """
 
     with open(filename, "w+") as f:
         f.write(content)

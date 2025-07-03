@@ -6,7 +6,7 @@ add_custom_command(
         COMMAND python3 ${PY_GENERATE_TD} -o ${GENERATED_TD}
         DEPENDS ${PY_GENERATE_TD})
 
-add_custom_target(PycGeneratedTd DEPENDS ${GENERATED_TD})
+add_custom_target(PycGeneratedTd DEPENDS ${GENERATED_TD} ${PY_GENERATE_TD})
 
 set(LLVM_TARGET_DEFINITIONS PycOps.td)
 

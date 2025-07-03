@@ -11,6 +11,10 @@ def Pyc_Dialect : Dialect {
   }];
 
   let cppNamespace = "::mlir::pyc";
+
+  let extraClassDeclaration = [{
+  static ::mlir::Operation *parseOperation(uint8_t opCode, uint8_t opArg, ::mlir::Location loc, ::mlir::OpBuilder &builder);
+  }];
 }
 
 #endif  // PYC_DIALECT_TD

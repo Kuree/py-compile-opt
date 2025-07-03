@@ -1,12 +1,18 @@
 include "mlir/IR/OpBase.td"
 
-class PyCOpInterface<string name> : OpInterface<name> {
+class PycOpInterface<string name> : OpInterface<name> {
   let cppNamespace = "::mlir::pyc";
 }
 
-def StackInterface : PyCOpInterface<"StackInterface"> {
+def StackInterface : PycOpInterface<"StackInterface"> {
   let methods = [
     InterfaceMethod<"", "int32_t", "getNumOfStackPopped">,
     InterfaceMethod<"", "int32_t", "getNumOfStackPushed">,
+  ];
+}
+
+def SerializableInterface : PycOpInterface<"Serializable"> {
+  let methods = [
+    InterfaceMethod<"", "std::pair<uint8_t, uint8_t>", "serialize">
   ];
 }
