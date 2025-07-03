@@ -3,6 +3,23 @@ include "mlir/Dialect/Pyc/IR/PycOpsInterfaces.td"
 
 include "mlir/IR/BuiltinAttributes.td"
 
+// op traits
+def IsConstantPop : NativeOpTrait<"IsConstantPop"> {
+  let cppNamespace = "::mlir::pyc";
+}
+def IsConstantPush : NativeOpTrait<"IsConstantPush"> {
+  let cppNamespace = "::mlir::pyc";
+}
+def PopsStack : NativeOpTrait<"PopsStack"> {
+  let cppNamespace = "::mlir::pyc";
+}
+def PushesStack : NativeOpTrait<"PushesStack"> {
+  let cppNamespace = "::mlir::pyc";
+}
+def DoesNotChangeStackSize : NativeOpTrait<"DoesNotChangeStackSize"> {
+  let cppNamespace = "::mlir::pyc";
+}
+
 class Pyc_Op<string mnemonic, list<Trait> traits = []> : Op<Pyc_Dialect, mnemonic, traits> {
 
 }

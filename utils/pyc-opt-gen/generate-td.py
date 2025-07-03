@@ -118,17 +118,15 @@ def generate_td(filename: str, op_defs: Dict[str, PycOp]):
         traits = []
 
         if op_def.constant_pop:
-            traits.append("ConstantPop")
+            traits.append("IsConstantPop")
         if op_def.constant_push:
-            traits.append("ConstantPush")
+            traits.append("IsConstantPush")
         if op_def.pop_stack:
-            traits.append("PopStack")
+            traits.append("PopsStack")
         if op_def.push_stack:
-            traits.append("PushStack")
+            traits.append("PushesStack")
         if op_def.stack_unchanged:
-            traits.append("StackUnchanged")
-        # TODO: add back native trait implementation
-        traits = []
+            traits.append("DoesNotChangeStackSize")
         if len(traits) > 0:
             content += ", ".join(traits) + ", "
         # stack interface
