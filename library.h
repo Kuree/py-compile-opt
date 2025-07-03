@@ -1,6 +1,0 @@
-#ifndef PY_COMPILE_OPT_LIBRARY_H
-#define PY_COMPILE_OPT_LIBRARY_H
-
-void hello();
-
-#endif //PY_COMPILE_OPT_LIBRARY_H

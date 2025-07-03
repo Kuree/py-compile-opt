@@ -1,6 +1,7 @@
 import argparse
 import re
 import os
+import sysconfig
 
 from typing import Dict, Union
 
@@ -40,16 +41,30 @@ class PycOp:
         return str({"name": self.asm_name, "value": self.value, "pop": self.num_popped, "push": self.num_pushed})
 
 
-def parse_opt_defs() -> Dict[str, PycOp]:
-    filename = os.path.join(os.path.dirname(__file__), "opcode_ids.h")
+def parse_opt_defs(include_path: str) -> Dict[str, PycOp]:
+    filename = os.path.join(include_path, "opcode.h")
+    opcodes = set()
     with open(filename, "r") as f:
         content = f.read()
+    if "CACHE" not in content:
+        # newer python. need to read out opcode_ids.h
+        filename = os.path.join(include_path, "opcode_ids.h")
+        with open(filename, "r") as f:
+            content = f.read()
     regex = r"#define ([A-Z_]+)\s+(\d+)"
     result: Dict[str, PycOp] = {}
     matches = re.finditer(regex, content, re.MULTILINE)
     for match in matches:
         name: str = match.group(1)
         value: int = int(match.group(2))
+        # no repeat
+        if value in opcodes:
+            continue
+        opcodes.add(value)
+        # not interested in NB_
+        if name.startswith("NB_"):
+            continue
+
         result[name] = PycOp(name, value)
 
     return result
@@ -69,6 +84,8 @@ def parse_opt_nums(op_defs: Dict[str, PycOp]):
     for match in matches:
         name: str = match.group(1)
         value: Union[str, int] = match.group(2)
+        if name not in op_defs:
+            continue
         op = op_defs[name]
         if value.isdigit():
             value = int(value)
@@ -78,6 +95,8 @@ def parse_opt_nums(op_defs: Dict[str, PycOp]):
     for match in matches:
         name: str = match.group(1)
         value: Union[str, int] = match.group(2)
+        if name not in op_defs:
+            continue
         op = op_defs[name]
         if value.isdigit():
             value = int(value)
@@ -139,7 +158,8 @@ def main():
     parser = argparse.ArgumentParser("Generate MLIR tablegen for for pyc ops")
     parser.add_argument("-o", "--output")
     args = parser.parse_args()
-    op_defs = parse_opt_defs()
+    include_path = sysconfig.get_path("include")
+    op_defs = parse_opt_defs(include_path)
     parse_opt_nums(op_defs)
     generate_td(args.output, op_defs)
 

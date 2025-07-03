@@ -17,6 +17,9 @@ include(${LLVM_DIR}/AddLLVM.cmake)
 include(${LLVM_DIR}/TableGen.cmake)
 include(${MLIR_DIR}/AddMLIR.cmake)
 
+# need to read out python header
+find_package(Python3 REQUIRED)
+
 # include globally
 include_directories(${LLVM_INCLUDE_DIRS})
 include_directories(${PROJECT_SOURCE_DIR}/include)
