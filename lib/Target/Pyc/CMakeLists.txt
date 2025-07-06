@@ -10,6 +10,7 @@ add_custom_target(PycGeneratedParser DEPENDS ${GENERATED_PARSER})
 
 add_mlir_library(MLIRPycTarget
     Parser.cc
+    TranslateRegistration.cc
 
     LINK_LIBS
     LLVMSupport

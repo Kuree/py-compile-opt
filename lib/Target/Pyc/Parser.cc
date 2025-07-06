@@ -61,7 +61,7 @@ struct ParserContext {
 
 class Parser {
   public:
-    explicit Parser(llvm::MemoryBuffer &buffer)
+    explicit Parser(const llvm::MemoryBuffer &buffer)
         : buffer(buffer.getBuffer()), pos(0) {}
 
     auto getUInt8() { return parseBytes<uint8_t>(); }
@@ -285,6 +285,7 @@ mlir::pyc::CollectionOp parseCollectionOp(ObjectType type, ParserContext &ctx,
             key->moveBefore(kvpBlock, kvpBlock->end());
             value->moveBefore(kvpBlock, kvpBlock->end());
         }
+        return res;
     } else {
         CollectionType collectionType;
         switch (type) {
@@ -461,7 +462,7 @@ mlir::Operation *parseObj(ParserContext &ctx, Parser &parser,
 
 namespace mlir {
 
-LogicalResult parseModule(llvm::MemoryBuffer &buffer, ModuleOp moduleOp,
+LogicalResult parseModule(const llvm::MemoryBuffer &buffer, ModuleOp moduleOp,
                           OpBuilder &builder) {
     Parser parser(buffer);
     auto version = parser.getUInt32();
@@ -496,4 +497,22 @@ LogicalResult parseModule(llvm::MemoryBuffer &buffer, ModuleOp moduleOp,
     ParserContext parserContext(moduleOp, builder);
     return success(parseObj(parserContext, parser, builder));
 }
+
+OwningOpRef<Operation *> parseModule(llvm::SourceMgr &srcMgr,
+                                     mlir::MLIRContext *ctx) {
+    if (srcMgr.getNumBuffers() != 1) {
+        llvm::errs() << "Only one buffer supported\n";
+        return {};
+    }
+    auto buffer = srcMgr.getMemoryBuffer(0);
+    OpBuilder builder(ctx);
+    auto loc = mlir::FileLineColLoc::get(
+        builder.getStringAttr(buffer->getBufferIdentifier()), 0, 0);
+    OwningOpRef<ModuleOp> mod = ModuleOp::create(loc);
+
+    if (failed(parseModule(*buffer, *mod, builder)))
+        return {};
+    return mod;
+}
+
 } // namespace mlir

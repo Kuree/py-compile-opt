@@ -1,1 +1,1 @@
-add_subdirectory(pyc-parser)
+add_subdirectory(pyc-translate)
