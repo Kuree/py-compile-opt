@@ -3,6 +3,7 @@ include "mlir/Dialect/Pyc/IR/PycOpsInterfaces.td"
 include "mlir/Dialect/Pyc/IR/PycOpsEnums.td"
 
 include "mlir/IR/BuiltinAttributes.td"
+include "mlir/IR/SymbolInterfaces.td"
 
 // op traits
 def IsConstantPop : NativeOpTrait<"IsConstantPop"> {
@@ -51,7 +52,7 @@ def StackUnchanged : NativeOpTrait<"StackUnchanged"> {
   let cppNamespace = "::mlir::pyc";
 }
 
-def Pyc_CodeOp : Pyc_Op<"code", [IsolatedFromAbove, NoTerminator, SingleBlock]> {
+def Pyc_CodeOp : Pyc_Op<"code", [IsolatedFromAbove, NoTerminator, SingleBlock, NoRegionArguments]> {
   let regions = (region SizedRegion<1>:$region);
 
   let assemblyFormat = "$region attr-dict";
@@ -63,12 +64,37 @@ def Pyc_ConstantOp : Pyc_Op<"constant", [CodeObjectMemberInterface]> {
    let assemblyFormat = "$value ($objType^)? attr-dict";
 }
 
-def Pyc_CollectionOp : Pyc_Op<"collection", [IsolatedFromAbove, NoTerminator, SingleBlock,
+def Pyc_CollectionOp : Pyc_Op<"collection", [IsolatedFromAbove, NoTerminator, SingleBlock, NoRegionArguments,
                                              CodeObjectMemberInterface]> {
   let arguments = (ins Pyc_CollectionType:$collectionType, OptionalAttr<Pyc_CodeObjectMemberType>:$objType);
   let regions = (region SizedRegion<1>:$region);
 
   let assemblyFormat = "$collectionType ($objType^)? $region attr-dict";
+}
+
+def Pyc_RefCollectionOp : Pyc_Op<"ref_collection", [IsolatedFromAbove, NoTerminator, SingleBlock, NoRegionArguments,
+                                                    SymbolTable]> {
+  let regions = (region SizedRegion<1>:$region);
+
+  let assemblyFormat = "$region attr-dict";
+}
+
+def Pyc_MakeRefOp : Pyc_Op<"make_ref", [IsolatedFromAbove, NoTerminator, SingleBlock, NoRegionArguments, Symbol,
+                                        HasParent<"RefCollectionOp">]> {
+    let regions = (region SizedRegion<1>:$region);
+    let assemblyFormat = "$region attr-dict";
+
+    let hasVerifier = 1;
+}
+
+def Pyc_RefOp : Pyc_Op<"ref", [SymbolUserOpInterface]> {
+  let arguments = (ins FlatSymbolRefAttr:$ref);
+
+  let extraClassDeclaration = [{
+    llvm::LogicalResult verifySymbolUses(::mlir::SymbolTableCollection &symbolTable);
+  }];
+
+  let assemblyFormat = "$ref attr-dict";
 }
 
 #define INCLUDE_TABLEGEN
