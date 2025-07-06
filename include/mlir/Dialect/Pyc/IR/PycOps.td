@@ -99,5 +99,14 @@ def Pyc_RefOp : Pyc_Op<"ref", [SymbolUserOpInterface]> {
   let assemblyFormat = "$ref attr-dict";
 }
 
+def Pyc_KeyValuePairOp : Pyc_Op<"pair", [IsolatedFromAbove, NoTerminator, SingleBlock, NoRegionArguments,
+                                         HasParent<"CollectionOp">]> {
+    let regions = (region SizedRegion<1>:$region);
+
+    let assemblyFormat = "$region attr-dict";
+
+    let hasVerifier = 1;
+}
+
 #define INCLUDE_TABLEGEN
 include "mlir/Dialect/Pyc/IR/GeneratedOps.td"

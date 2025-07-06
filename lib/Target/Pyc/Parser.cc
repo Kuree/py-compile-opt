@@ -46,8 +46,15 @@ struct ParserContext {
         return idx;
     }
 
+    void internalize(mlir::StringAttr str) { internalStrs.emplace_back(str); }
+
+    mlir::StringAttr getInternalizedStr(uint32_t idx) {
+        return internalStrs[idx];
+    }
+
   private:
     mlir::pyc::RefCollectionOp refs;
+    llvm::SmallVector<mlir::StringAttr> internalStrs = {};
 
     uint32_t refCount = 0;
 };
@@ -63,13 +70,9 @@ class Parser {
     auto getSInt16() { return parseBytes<int16_t>(); }
     auto getUInt32() { return parseBytes<uint32_t>(); }
     auto getSInt32() { return parseBytes<int32_t>(); }
+    auto getDouble() { return parseBytes<double>(); }
 
-  private:
-    llvm::StringRef buffer;
-    uint64_t pos;
-
-    template <typename T> llvm::FailureOr<T> parseBytes() {
-        auto constexpr size = sizeof(T);
+    llvm::FailureOr<llvm::StringRef> getBytes(uint32_t size) {
         auto nextPos = pos + size;
         if (buffer.size() < nextPos) {
             llvm::errs() << "expect " << size << "bytes at position " << pos
@@ -78,8 +81,20 @@ class Parser {
         }
         auto res = buffer.slice(pos, pos + size);
         pos += size;
+        return res;
+    }
+
+  private:
+    llvm::StringRef buffer;
+    uint64_t pos;
+
+    template <typename T> llvm::FailureOr<T> parseBytes() {
+        auto constexpr size = sizeof(T);
+        auto res = getBytes(size);
+        if (failed(res))
+            return failure();
         T v;
-        std::memcpy(&v, res.data(), size);
+        std::memcpy(&v, res->data(), size);
         return v;
     }
 };
@@ -222,14 +237,156 @@ mlir::Operation *parseCodeObj(ParserContext &ctx, Parser &parser,
     return codeOp;
 }
 
-mlir::pyc::ConstantOp parseString(ObjectType type, Parser &parser,
-                                  mlir::OpBuilder &builder) {}
+mlir::pyc::ConstantOp parseString(ObjectType type, ParserContext &ctx,
+                                  Parser &parser, mlir::OpBuilder &builder) {
+    int32_t size;
+    if (type == ObjectType::TYPE_SHORT_ASCII ||
+        type == ObjectType::TYPE_SHORT_ASCII_INTERNED) {
+        auto s = parser.getSInt8();
+        if (failed(s))
+            return {};
+        // NOLINTNEXTLINE
+        size = *s;
+    } else {
+        auto s = parser.getSInt32();
+        if (failed(s))
+            return {};
+        size = *s;
+    }
+    if (size < 0)
+        return {};
+    auto str = parser.getBytes(size);
+    if (failed(str))
+        return {};
+    auto attr = builder.getStringAttr(*str);
 
-mlir::pyc::CollectionOp parseCollectionOp(ObjectType type, Parser &parser,
-                                          mlir::OpBuilder &builder) {}
+    return builder.create<mlir::pyc::ConstantOp>(
+        builder.getUnknownLoc(), attr, mlir::pyc::CodeObjectMemberTypeAttr{});
+}
+
+mlir::pyc::CollectionOp parseCollectionOp(ObjectType type, ParserContext &ctx,
+                                          Parser &parser,
+                                          mlir::OpBuilder &builder) {
+    using mlir::pyc::CollectionType;
+    if (type == ObjectType::TYPE_DICT) {
+        // this is null terminated
+        auto res = builder.create<mlir::pyc::CollectionOp>(
+            builder.getUnknownLoc(), CollectionType::dict,
+            mlir::pyc::CodeObjectMemberTypeAttr{});
+        mlir::OpBuilder::InsertionGuard guard(builder);
+        auto *block = builder.createBlock(&res.getBodyRegion());
+        builder.setInsertionPointToEnd(block);
+        // dict is null terminated
+        while (auto key = parseObj(ctx, parser, builder)) {
+            auto value = parseObj(ctx, parser, builder);
+            auto kvp = builder.create<mlir::pyc::KeyValuePairOp>(
+                builder.getUnknownLoc());
+            auto *kvpBlock = builder.createBlock(&kvp.getBodyRegion());
+            key->moveBefore(kvpBlock, kvpBlock->end());
+            value->moveBefore(kvpBlock, kvpBlock->end());
+        }
+    } else {
+        CollectionType collectionType;
+        switch (type) {
+        case ObjectType::TYPE_TUPLE:
+        case ObjectType::TYPE_SMALL_TUPLE:
+            break;
+        case ObjectType::TYPE_LIST:
+            collectionType = CollectionType::list;
+            break;
+
+        case ObjectType::TYPE_FROZENSET:
+            collectionType = CollectionType::frozenset;
+            break;
+        case ObjectType::TYPE_SET:
+            collectionType = CollectionType::set;
+            break;
+        default:
+            llvm::errs() << "Unsupported collection type\n";
+            return {};
+        }
+
+        uint32_t size;
+        if (type == ObjectType::TYPE_SMALL_TUPLE) {
+            auto s = parser.getUInt8();
+            if (failed(s))
+                return {};
+            size = *s;
+        } else {
+            auto s = parser.getUInt32();
+            if (failed(s))
+                return {};
+            size = *s;
+        }
+        auto res = builder.create<mlir::pyc::CollectionOp>(
+            builder.getUnknownLoc(), collectionType,
+            mlir::pyc::CodeObjectMemberTypeAttr{});
+        mlir::OpBuilder::InsertionGuard guard(builder);
+        auto *block = builder.createBlock(&res.getBodyRegion());
+        builder.setInsertionPointToEnd(block);
+        for (auto i = 0u; i < size; i++) {
+            parseObj(ctx, parser, builder);
+        }
+        return res;
+    }
+}
 
 mlir::pyc::ConstantOp parsePrimitiveType(ObjectType type, Parser &parser,
-                                         mlir::OpBuilder &builder) {}
+                                         mlir::OpBuilder &builder) {
+    mlir::TypedAttr value;
+    switch (type) {
+    case ObjectType::TYPE_INT: {
+        // 32b
+        auto i = parser.getSInt32();
+        if (failed(i))
+            return {};
+        value = builder.getI32IntegerAttr(*i);
+        break;
+    }
+    case ObjectType::TYPE_LONG: {
+        // packed as 16bits
+        auto size = parser.getUInt32();
+        if (failed(size))
+            return {};
+        llvm::SmallVector<uint64_t> values((int)(std::ceil(*size / 4.0)));
+        std::fill(values.begin(), values.end(), 0);
+        for (auto i = 0; i < *size; i++) {
+            uint64_t sh = i % 4;
+            auto idx = i / 4;
+            auto &v = values[idx];
+            auto s = parser.getUInt16();
+            if (failed(s))
+                return {};
+            v |= static_cast<uint64_t>(*s) << sh;
+        }
+        auto totalBits = *size * 16;
+        llvm::APInt apInt{totalBits, values};
+        value =
+            builder.getIntegerAttr(builder.getIntegerType(totalBits), apInt);
+        break;
+    }
+    case ObjectType::TYPE_TRUE: {
+        value = builder.getBoolAttr(true);
+        break;
+    }
+    case ObjectType::TYPE_FALSE: {
+        value = builder.getBoolAttr(false);
+        break;
+    }
+    case ObjectType::TYPE_BINARY_FLOAT: {
+        auto v = parser.getDouble();
+        if (failed(v))
+            return {};
+        value = builder.getF64FloatAttr(*v);
+        break;
+    }
+    default:
+        llvm::errs() << "invalid/unsupported primitive type\n";
+        return {};
+    }
+    return builder.create<mlir::pyc::ConstantOp>(
+        builder.getUnknownLoc(), value, mlir::pyc::CodeObjectMemberTypeAttr{});
+}
 
 mlir::Operation *makeRefObject(uint32_t idx, mlir::OpBuilder &builder) {
     std::string refName = getRefSymbolName(idx);
@@ -255,6 +412,8 @@ mlir::Operation *parseObj(ParserContext &ctx, Parser &parser,
     mlir::Operation *res = nullptr;
     auto objType = static_cast<ObjectType>(*type);
     switch (objType) {
+    case ObjectType::TYPE_NULL:
+        return nullptr;
     case ObjectType::TYPE_ASCII:
     case ObjectType::TYPE_ASCII_INTERNED:
     case ObjectType::TYPE_SHORT_ASCII:
@@ -262,7 +421,7 @@ mlir::Operation *parseObj(ParserContext &ctx, Parser &parser,
     case ObjectType::TYPE_STRING:
     case ObjectType::TYPE_INTERNED:
     case ObjectType::TYPE_UNICODE:
-        res = parseString(objType, parser, builder);
+        res = parseString(objType, ctx, parser, builder);
         break;
     case ObjectType::TYPE_TUPLE:
     case ObjectType::TYPE_LIST:
@@ -270,7 +429,7 @@ mlir::Operation *parseObj(ParserContext &ctx, Parser &parser,
     case ObjectType::TYPE_SET:
     case ObjectType::TYPE_FROZENSET:
     case ObjectType::TYPE_DICT:
-        res = parseCollectionOp(objType, parser, builder);
+        res = parseCollectionOp(objType, ctx, parser, builder);
         break;
     case ObjectType::TYPE_CODE:
         res = parseCodeObj(ctx, parser, builder);

@@ -6,7 +6,8 @@ def Pyc_CollectionType : I32EnumAttr<
       I32EnumAttrCase<"tuple", 0>,
       I32EnumAttrCase<"list", 1>,
       I32EnumAttrCase<"set", 2>,
-      I32EnumAttrCase<"dist", 3>,
+      I32EnumAttrCase<"dict", 3>,
+      I32EnumAttrCase<"frozenset", 4>,
     ]> {
   let cppNamespace = "::mlir::pyc";
 }

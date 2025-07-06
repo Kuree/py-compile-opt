@@ -51,4 +51,13 @@ RefOp::verifySymbolUses(::mlir::SymbolTableCollection &symbolTable) {
     return success();
 }
 
+::llvm::LogicalResult KeyValuePairOp::verify() {
+    // only size two
+    auto *body = getBody();
+    if (body->getOperations().size() != 2) {
+        return emitOpError("can only have two operations");
+    }
+    return success();
+}
+
 } // namespace mlir::pyc
