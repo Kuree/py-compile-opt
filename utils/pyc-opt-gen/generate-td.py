@@ -113,7 +113,7 @@ def generate_td(filename: str, op_defs: Dict[str, PycOp]):
     """
 
     for _, op_def in op_defs.items():
-        content += "def " + op_def.op_name+ " : Pyc_CodeOp<\"" + op_def.asm_name + "\", ["
+        content += "def " + op_def.op_name+ " : Pyc_ObjOp<\"" + op_def.asm_name + "\", ["
         # insert traits
         traits = []
 

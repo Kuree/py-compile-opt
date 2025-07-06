@@ -9,6 +9,9 @@
 // Dialect
 #include "mlir/Dialect/Pyc/IR/PycOpsDialect.h.inc"
 
+// Enums
+#include "mlir/Dialect/Pyc/IR/PycOpsEnums.h.inc"
+
 // Interfaces
 #include "mlir/Dialect/Pyc/IR/PycOpsInterfaces.h.inc"
 

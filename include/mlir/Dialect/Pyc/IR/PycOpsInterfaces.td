@@ -16,3 +16,20 @@ def SerializableInterface : PycOpInterface<"Serializable"> {
     InterfaceMethod<"", "std::pair<uint8_t, uint8_t>", "serialize">
   ];
 }
+
+
+def CodeObjectMemberInterface : PycOpInterface<"CodeObjectMember"> {
+  let methods = [
+    InterfaceMethod<"", "std::optional<::mlir::pyc::CodeObjectMemberType>", "getMemberType",
+    (ins), /*methodBody=*/[{}],
+    /*defaultImplementation=*/[{
+    if (auto attr = $_op->template getAttrOfType<::mlir::pyc::CodeObjectMemberTypeAttr>("objType")) return attr.getValue();
+      return std::nullopt;
+    }]>,
+    InterfaceMethod<"", "void", "setMemberType",
+    (ins "::mlir::pyc::CodeObjectMemberType":$value), /*methodBody=*/[{}],
+    /*defaultImplementation=*/[{
+      $_op.setObjType(value);
+    }]>
+  ];
+}

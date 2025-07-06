@@ -9,6 +9,8 @@ add_custom_command(
 add_custom_target(PycGeneratedTd DEPENDS ${GENERATED_TD} ${PY_GENERATE_TD})
 
 set(LLVM_TARGET_DEFINITIONS PycOps.td)
+mlir_tablegen(PycOpsEnums.h.inc -gen-enum-decls)
+mlir_tablegen(PycOpsEnums.cpp.inc -gen-enum-defs)
 
 add_mlir_dialect(PycOps pyc)
 add_mlir_interface(PycOpsInterfaces)

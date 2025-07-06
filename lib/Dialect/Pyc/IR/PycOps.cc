@@ -11,5 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #define GET_OP_CLASSES
-
 #include "mlir/Dialect/Pyc/IR/PycOps.cpp.inc"
+
+// enum
+#include "mlir/Dialect/Pyc/IR/PycOpsEnums.cpp.inc"
