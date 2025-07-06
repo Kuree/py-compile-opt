@@ -2,6 +2,7 @@
 #include "mlir/Dialect/Pyc/IR/Pyc.hh"
 
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/FormatVariadic.h"
 
 namespace {
 
@@ -12,6 +13,44 @@ using llvm::dyn_cast_or_null;
 using llvm::failed;
 using llvm::failure;
 using llvm::success;
+
+std::string getRefSymbolName(uint32_t idx) {
+    return llvm::formatv("ref_%s", idx);
+}
+
+struct ParserContext {
+    ParserContext(mlir::ModuleOp moduleOp, mlir::OpBuilder &builder) {
+        mlir::OpBuilder::InsertionGuard guard(builder);
+        builder.setInsertionPointToStart(moduleOp.getBody());
+        refs =
+            builder.create<mlir::pyc::RefCollectionOp>(builder.getUnknownLoc());
+    }
+
+    mlir::OpBuilder::InsertPoint getRefInsertionPoint() {
+        auto *block = &refs->getRegion(0).front();
+        return {block, block->end()};
+    }
+
+    uint32_t addRefOp(mlir::Operation *op, mlir::OpBuilder &builder) {
+        auto idx = refCount;
+        auto name = getRefSymbolName(idx);
+        refCount += 1;
+        auto nameAttr = builder.getStringAttr(name);
+        mlir::OpBuilder::InsertionGuard guard(builder);
+        builder.restoreInsertionPoint(getRefInsertionPoint());
+        auto attr = mlir::FlatSymbolRefAttr::get(nameAttr);
+        auto makeRef =
+            builder.create<mlir::pyc::MakeRefOp>(builder.getUnknownLoc(), attr);
+        auto *block = builder.createBlock(&makeRef.getRegion());
+        op->moveBefore(block, block->end());
+        return idx;
+    }
+
+  private:
+    mlir::pyc::RefCollectionOp refs;
+
+    uint32_t refCount = 0;
+};
 
 class Parser {
   public:
@@ -25,13 +64,9 @@ class Parser {
     auto getUInt32() { return parseBytes<uint32_t>(); }
     auto getSInt32() { return parseBytes<int32_t>(); }
 
-    mlir::Operation *getObjectRef(uint32_t idx) const { return objs[idx]; }
-    void addObjectRef(mlir::Operation *obj) { objs.emplace_back(obj); }
-
   private:
     llvm::StringRef buffer;
     uint64_t pos;
-    llvm::SmallVector<mlir::Operation *> objs;
 
     template <typename T> llvm::FailureOr<T> parseBytes() {
         auto constexpr size = sizeof(T);
@@ -49,9 +84,11 @@ class Parser {
     }
 };
 
-mlir::Operation *parseObj(Parser &parser, mlir::OpBuilder &builder);
+mlir::Operation *parseObj(ParserContext &ctx, Parser &parser,
+                          mlir::OpBuilder &builder);
 
-mlir::Operation *parseCodeObj(Parser &parser, mlir::OpBuilder &builder) {
+mlir::Operation *parseCodeObj(ParserContext &ctx, Parser &parser,
+                              mlir::OpBuilder &builder) {
     auto codeOp = builder.create<mlir::pyc::CodeOp>(builder.getUnknownLoc());
     auto *block = builder.createBlock(&codeOp.getBodyRegion());
     mlir::OpBuilder::InsertionGuard guard(builder);
@@ -103,7 +140,7 @@ mlir::Operation *parseCodeObj(Parser &parser, mlir::OpBuilder &builder) {
 
 #ifdef PYC_CONSTS
     if (auto constants = dyn_cast_or_null<mlir::pyc::CodeObjectMember>(
-            parseObj(parser, builder)))
+            parseObj(ctx, parser, builder)))
         constants.setMemberType(mlir::pyc::CodeObjectMemberType::Constants);
     else
         return nullptr;
@@ -111,7 +148,7 @@ mlir::Operation *parseCodeObj(Parser &parser, mlir::OpBuilder &builder) {
 
 #ifdef PYC_NAMES
     if (auto names = dyn_cast_or_null<mlir::pyc::CodeObjectMember>(
-            parseObj(parser, builder)))
+            parseObj(ctx, parser, builder)))
         names.setMemberType(mlir::pyc::CodeObjectMemberType::Names);
     else
         return nullptr;
@@ -119,7 +156,7 @@ mlir::Operation *parseCodeObj(Parser &parser, mlir::OpBuilder &builder) {
 
 #ifdef PYC_LOCALSPLUSNAMES
     if (auto names = dyn_cast_or_null<mlir::pyc::CodeObjectMember>(
-            parseObj(parser, builder)))
+            parseObj(ctx, parser, builder)))
         names.setMemberType(mlir::pyc::CodeObjectMemberType::LocalPlusNames);
     else
         return nullptr;
@@ -127,7 +164,7 @@ mlir::Operation *parseCodeObj(Parser &parser, mlir::OpBuilder &builder) {
 
 #ifdef PYC_LOCALSPLUSKINDS
     if (auto localPlusKinds = dyn_cast_or_null<mlir::pyc::CodeObjectMember>(
-            parseObj(parser, builder)))
+            parseObj(ctx, parser, builder)))
         localPlusKinds.setMemberType(
             mlir::pyc::CodeObjectMemberType::LocalPlusKinds);
     else
@@ -136,7 +173,7 @@ mlir::Operation *parseCodeObj(Parser &parser, mlir::OpBuilder &builder) {
 
 #ifdef PYC_FILENAME
     if (auto filename = dyn_cast_or_null<mlir::pyc::CodeObjectMember>(
-            parseObj(parser, builder)))
+            parseObj(ctx, parser, builder)))
         filename.setMemberType(mlir::pyc::CodeObjectMemberType::Filename);
     else
         return nullptr;
@@ -144,7 +181,7 @@ mlir::Operation *parseCodeObj(Parser &parser, mlir::OpBuilder &builder) {
 
 #ifdef PYC_NAME
     if (auto name = dyn_cast_or_null<mlir::pyc::CodeObjectMember>(
-            parseObj(parser, builder)))
+            parseObj(ctx, parser, builder)))
         name.setMemberType(mlir::pyc::CodeObjectMemberType::Name);
     else
         return nullptr;
@@ -152,7 +189,7 @@ mlir::Operation *parseCodeObj(Parser &parser, mlir::OpBuilder &builder) {
 
 #ifdef PYC_QUALNAME
     if (auto name = dyn_cast_or_null<mlir::pyc::CodeObjectMember>(
-            parseObj(parser, builder)))
+            parseObj(ctx, parser, builder)))
         name.setMemberType(mlir::pyc::CodeObjectMemberType::QualName);
     else
         return nullptr;
@@ -168,7 +205,7 @@ mlir::Operation *parseCodeObj(Parser &parser, mlir::OpBuilder &builder) {
 
 #ifdef PYC_LINETABLE
     if (auto table = dyn_cast_or_null<mlir::pyc::CodeObjectMember>(
-            parseObj(parser, builder)))
+            parseObj(ctx, parser, builder)))
         table.setMemberType(mlir::pyc::CodeObjectMemberType::LineTable);
     else
         return nullptr;
@@ -176,7 +213,7 @@ mlir::Operation *parseCodeObj(Parser &parser, mlir::OpBuilder &builder) {
 
 #ifdef PYC_EXCEPTIONTABLE
     if (auto table = dyn_cast_or_null<mlir::pyc::CodeObjectMember>(
-            parseObj(parser, builder)))
+            parseObj(ctx, parser, builder)))
         table.setMemberType(mlir::pyc::CodeObjectMemberType::LineTable);
     else
         return nullptr;
@@ -194,7 +231,14 @@ mlir::pyc::CollectionOp parseCollectionOp(ObjectType type, Parser &parser,
 mlir::pyc::ConstantOp parsePrimitiveType(ObjectType type, Parser &parser,
                                          mlir::OpBuilder &builder) {}
 
-mlir::Operation *parseObj(Parser &parser, mlir::OpBuilder &builder) {
+mlir::Operation *makeRefObject(uint32_t idx, mlir::OpBuilder &builder) {
+    std::string refName = getRefSymbolName(idx);
+    auto ref = builder.getStringAttr(refName);
+    return builder.create<mlir::pyc::RefOp>(builder.getUnknownLoc(), ref);
+}
+
+mlir::Operation *parseObj(ParserContext &ctx, Parser &parser,
+                          mlir::OpBuilder &builder) {
     auto type = parser.getUInt8();
     if (failed(type))
         return nullptr;
@@ -203,7 +247,8 @@ mlir::Operation *parseObj(Parser &parser, mlir::OpBuilder &builder) {
         auto idx = parser.getUInt32();
         if (failed(idx))
             return nullptr;
-        return parser.getObjectRef(*idx);
+        // the index name is global to the entire module
+        return makeRefObject(*idx, builder);
     }
 
     // based on object type
@@ -228,7 +273,7 @@ mlir::Operation *parseObj(Parser &parser, mlir::OpBuilder &builder) {
         res = parseCollectionOp(objType, parser, builder);
         break;
     case ObjectType::TYPE_CODE:
-        res = parseCodeObj(parser, builder);
+        res = parseCodeObj(ctx, parser, builder);
         break;
     case ObjectType::TYPE_BINARY_FLOAT:
     case ObjectType::TYPE_FLOAT:
@@ -245,8 +290,10 @@ mlir::Operation *parseObj(Parser &parser, mlir::OpBuilder &builder) {
     }
 
     if (*type & kTypeObjRef && res) {
-        // flag set, keep reference
-        parser.addObjectRef(res);
+        // flag set, move it to the reference collection
+        // and replace it with a ref
+        auto idx = ctx.addRefOp(res, builder);
+        res = makeRefObject(idx, builder);
     }
     return res;
 }
@@ -287,6 +334,7 @@ LogicalResult parseModule(llvm::MemoryBuffer &buffer, ModuleOp moduleOp,
     }
 
     builder.setInsertionPointToEnd(moduleOp.getBody());
-    return success(parseObj(parser, builder));
+    ParserContext parserContext(moduleOp, builder);
+    return success(parseObj(parserContext, parser, builder));
 }
 } // namespace mlir

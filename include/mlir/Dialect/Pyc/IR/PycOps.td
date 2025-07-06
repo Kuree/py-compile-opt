@@ -81,8 +81,10 @@ def Pyc_RefCollectionOp : Pyc_Op<"ref_collection", [IsolatedFromAbove, NoTermina
 
 def Pyc_MakeRefOp : Pyc_Op<"make_ref", [IsolatedFromAbove, NoTerminator, SingleBlock, NoRegionArguments, Symbol,
                                         HasParent<"RefCollectionOp">]> {
+    let arguments = (ins SymbolRefAttr:$sym_name);
     let regions = (region SizedRegion<1>:$region);
-    let assemblyFormat = "$region attr-dict";
+
+    let assemblyFormat = "$sym_name $region attr-dict";
 
     let hasVerifier = 1;
 }
