@@ -33,3 +33,14 @@ def CodeObjectMemberInterface : PycOpInterface<"CodeObjectMember"> {
     }]>
   ];
 }
+
+def ReferencableObjectInterface : PycOpInterface<"ReferencableObjectInterface"> {
+  let methods = [
+    InterfaceMethod<"", "mlir::SymbolRefAttr", "getSymbolName",
+    (ins), /*methodBody=*/[{}],
+    /*defaultImplementation=*/[{
+    if (auto attr = $_op->template getAttrOfType<::mlir::SymbolRefAttr>("reference")) return attr;
+      return {};
+    }]>,
+  ];
+}

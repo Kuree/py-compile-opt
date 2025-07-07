@@ -19,35 +19,25 @@ std::string getRefSymbolName(uint32_t idx) {
 }
 
 struct ParserContext {
-    ParserContext(mlir::ModuleOp moduleOp, mlir::OpBuilder &builder) {
-        mlir::OpBuilder::InsertionGuard guard(builder);
-        builder.setInsertionPointToStart(moduleOp.getBody());
-        refs =
-            builder.create<mlir::pyc::RefCollectionOp>(builder.getUnknownLoc());
-        builder.createBlock(&refs.getBodyRegion());
-    }
+    ParserContext(mlir::ModuleOp moduleOp, mlir::OpBuilder &builder)
+        : moduleOp(moduleOp) {}
 
     mlir::OpBuilder::InsertPoint getRefInsertionPoint() {
-        auto *block = &refs->getRegion(0).front();
+        auto *block = moduleOp.getBody();
         return {block, block->end()};
     }
 
-    uint32_t addRefOp(mlir::Operation *op, mlir::OpBuilder &builder) {
-        auto idx = refCount;
-        auto name = getRefSymbolName(idx);
-        refCount += 1;
-        auto nameAttr = builder.getStringAttr(name);
+    void addRefOp(mlir::StringRef refName, mlir::Operation *op,
+                  mlir::OpBuilder &builder) {
         mlir::OpBuilder::InsertionGuard guard(builder);
         builder.restoreInsertionPoint(getRefInsertionPoint());
-        auto makeRef = builder.create<mlir::pyc::MakeRefOp>(
-            builder.getUnknownLoc(), nameAttr);
-        auto *block = builder.createBlock(&makeRef.getRegion());
-        op->moveBefore(block, block->end());
-        return idx;
+        builder.create<mlir::pyc::MakeRefOp>(builder.getUnknownLoc(), refName);
     }
 
+    uint32_t getNextRefCount() { return refCount++; }
+
   private:
-    mlir::pyc::RefCollectionOp refs;
+    mlir::ModuleOp moduleOp;
 
     uint32_t refCount = 0;
 };
@@ -283,7 +273,8 @@ mlir::pyc::ConstantOp parseString(ObjectType type, Parser &parser,
     auto attr = builder.getStringAttr(*str);
 
     return builder.create<mlir::pyc::ConstantOp>(
-        builder.getUnknownLoc(), attr, mlir::pyc::CodeObjectMemberTypeAttr{});
+        builder.getUnknownLoc(), attr, mlir::StringAttr{},
+        mlir::pyc::CodeObjectMemberTypeAttr{});
 }
 
 // NOLINTNEXTLINE
@@ -294,7 +285,7 @@ mlir::pyc::CollectionOp parseCollectionOp(ObjectType type, ParserContext &ctx,
     if (type == ObjectType::TYPE_DICT) {
         // this is null terminated
         auto res = builder.create<mlir::pyc::CollectionOp>(
-            builder.getUnknownLoc(), CollectionType::dict,
+            builder.getUnknownLoc(), CollectionType::dict, mlir::StringAttr{},
             mlir::pyc::CodeObjectMemberTypeAttr{});
         mlir::OpBuilder::InsertionGuard guard(builder);
         auto *block = builder.createBlock(&res.getBodyRegion());
@@ -344,7 +335,7 @@ mlir::pyc::CollectionOp parseCollectionOp(ObjectType type, ParserContext &ctx,
             size = *s;
         }
         auto res = builder.create<mlir::pyc::CollectionOp>(
-            builder.getUnknownLoc(), collectionType,
+            builder.getUnknownLoc(), collectionType, mlir::StringAttr{},
             mlir::pyc::CodeObjectMemberTypeAttr{});
         mlir::OpBuilder::InsertionGuard guard(builder);
         auto *block = builder.createBlock(&res.getBodyRegion());
@@ -413,7 +404,8 @@ mlir::pyc::ConstantOp parsePrimitiveType(ObjectType type, Parser &parser,
         return {};
     }
     return builder.create<mlir::pyc::ConstantOp>(
-        builder.getUnknownLoc(), value, mlir::pyc::CodeObjectMemberTypeAttr{});
+        builder.getUnknownLoc(), value, mlir::StringAttr{},
+        mlir::pyc::CodeObjectMemberTypeAttr{});
 }
 
 mlir::Operation *makeRefObject(uint32_t idx, mlir::OpBuilder &builder) {
@@ -482,8 +474,11 @@ mlir::Operation *parseObj(ParserContext &ctx, Parser &parser,
     if (*type & kTypeObjRef && res) {
         // flag set, move it to the reference collection
         // and replace it with a ref
-        auto idx = ctx.addRefOp(res, builder);
-        res = makeRefObject(idx, builder);
+        auto idx = ctx.getNextRefCount();
+        auto name = getRefSymbolName(idx);
+        res->setAttr("reference",
+                     mlir::FlatSymbolRefAttr::get(builder.getStringAttr(name)));
+        ctx.addRefOp(name, res, builder);
     }
     return res;
 }

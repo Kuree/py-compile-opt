@@ -52,10 +52,12 @@ def StackUnchanged : NativeOpTrait<"StackUnchanged"> {
   let cppNamespace = "::mlir::pyc";
 }
 
-def Pyc_CodeObjectOp : Pyc_Op<"code_obj", [IsolatedFromAbove, NoTerminator, SingleBlock, NoRegionArguments]> {
+def Pyc_CodeObjectOp : Pyc_Op<"code_obj", [IsolatedFromAbove, NoTerminator, SingleBlock, NoRegionArguments,
+                                           ReferencableObjectInterface]> {
+  let arguments = (ins DefaultValuedOptionalAttr<SymbolNameAttr, "{}">:$reference);
   let regions = (region SizedRegion<1>:$region);
 
-  let assemblyFormat = "$region attr-dict";
+  let assemblyFormat = "($reference^)? $region attr-dict";
 }
 
 def Pyc_CodeOp : Pyc_Op<"code", [IsolatedFromAbove, NoTerminator, SingleBlock, NoRegionArguments,
@@ -65,35 +67,26 @@ def Pyc_CodeOp : Pyc_Op<"code", [IsolatedFromAbove, NoTerminator, SingleBlock, N
   let assemblyFormat = "$region attr-dict";
 }
 
-def Pyc_ConstantOp : Pyc_Op<"constant", [CodeObjectMemberInterface]> {
-   let arguments = (ins TypedAttrInterface:$value, OptionalAttr<Pyc_CodeObjectMemberType>:$objType);
+def Pyc_ConstantOp : Pyc_Op<"constant", [CodeObjectMemberInterface, ReferencableObjectInterface]> {
+   let arguments = (ins TypedAttrInterface:$value, DefaultValuedOptionalAttr<SymbolNameAttr, "{}">:$reference,
+                    OptionalAttr<Pyc_CodeObjectMemberType>:$objType);
 
-   let assemblyFormat = "$value ($objType^)? attr-dict";
+   let assemblyFormat = "($reference^)? $value ($objType^)? attr-dict";
 }
 
 def Pyc_CollectionOp : Pyc_Op<"collection", [IsolatedFromAbove, NoTerminator, SingleBlock, NoRegionArguments,
-                                             CodeObjectMemberInterface]> {
-  let arguments = (ins Pyc_CollectionType:$collectionType, OptionalAttr<Pyc_CodeObjectMemberType>:$objType);
+                                             CodeObjectMemberInterface, ReferencableObjectInterface]> {
+  let arguments = (ins Pyc_CollectionType:$collectionType, DefaultValuedOptionalAttr<SymbolNameAttr, "{}">:$reference,
+                   OptionalAttr<Pyc_CodeObjectMemberType>:$objType);
   let regions = (region SizedRegion<1>:$region);
 
-  let assemblyFormat = "$collectionType ($objType^)? $region attr-dict";
+  let assemblyFormat = "($reference^)? $collectionType ($objType^)? $region attr-dict";
 }
 
-def Pyc_RefCollectionOp : Pyc_Op<"ref_collection", [IsolatedFromAbove, NoTerminator, SingleBlock, NoRegionArguments,
-                                                    SymbolTable]> {
-  let regions = (region SizedRegion<1>:$region);
-
-  let assemblyFormat = "$region attr-dict";
-}
-
-def Pyc_MakeRefOp : Pyc_Op<"make_ref", [IsolatedFromAbove, NoTerminator, SingleBlock, NoRegionArguments, Symbol,
-                                        HasParent<"RefCollectionOp">]> {
+def Pyc_MakeRefOp : Pyc_Op<"make_ref", [Symbol]> {
     let arguments = (ins SymbolNameAttr:$sym_name);
-    let regions = (region SizedRegion<1>:$region);
 
-    let assemblyFormat = "$sym_name $region attr-dict";
-
-    let hasVerifier = 1;
+    let assemblyFormat = "$sym_name attr-dict";
 }
 
 def Pyc_RefOp : Pyc_Op<"ref", [SymbolUserOpInterface, CodeObjectMemberInterface]> {
