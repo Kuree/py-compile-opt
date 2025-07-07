@@ -15,7 +15,7 @@ using llvm::failure;
 using llvm::success;
 
 std::string getRefSymbolName(uint32_t idx) {
-    return llvm::formatv("ref_%s", idx);
+    return llvm::formatv("ref_{0}", idx);
 }
 
 struct ParserContext {
@@ -24,6 +24,7 @@ struct ParserContext {
         builder.setInsertionPointToStart(moduleOp.getBody());
         refs =
             builder.create<mlir::pyc::RefCollectionOp>(builder.getUnknownLoc());
+        builder.createBlock(&refs.getBodyRegion());
     }
 
     mlir::OpBuilder::InsertPoint getRefInsertionPoint() {
@@ -38,9 +39,8 @@ struct ParserContext {
         auto nameAttr = builder.getStringAttr(name);
         mlir::OpBuilder::InsertionGuard guard(builder);
         builder.restoreInsertionPoint(getRefInsertionPoint());
-        auto attr = mlir::FlatSymbolRefAttr::get(nameAttr);
-        auto makeRef =
-            builder.create<mlir::pyc::MakeRefOp>(builder.getUnknownLoc(), attr);
+        auto makeRef = builder.create<mlir::pyc::MakeRefOp>(
+            builder.getUnknownLoc(), nameAttr);
         auto *block = builder.createBlock(&makeRef.getRegion());
         op->moveBefore(block, block->end());
         return idx;
@@ -98,8 +98,9 @@ mlir::Operation *parseObj(ParserContext &ctx, Parser &parser,
 // NOLINTNEXTLINE
 mlir::Operation *parseCodeObj(ParserContext &ctx, Parser &parser,
                               mlir::OpBuilder &builder) {
-    auto codeOp = builder.create<mlir::pyc::CodeOp>(builder.getUnknownLoc());
-    auto *block = builder.createBlock(&codeOp.getBodyRegion());
+    auto codeObjOp =
+        builder.create<mlir::pyc::CodeObjectOp>(builder.getUnknownLoc());
+    auto *block = builder.createBlock(&codeObjOp.getBodyRegion());
     mlir::OpBuilder::InsertionGuard guard(builder);
     builder.setInsertionPointToEnd(block);
 
@@ -109,37 +110,37 @@ mlir::Operation *parseCodeObj(ParserContext &ctx, Parser &parser,
     auto argCount = parser.getSInt32();
     if (failed(argCount))
         return nullptr;
-    codeOp->setAttr("pyc.arg_count", builder.getI32IntegerAttr(*argCount));
+    codeObjOp->setAttr("pyc.arg_count", builder.getI32IntegerAttr(*argCount));
 #endif
 
 #ifdef PYC_POSONLYARGCOUNT
     auto posOnlyArgCount = parser.getSInt32();
     if (failed(posOnlyArgCount))
         return nullptr;
-    codeOp->setAttr("pyc.pos_only_arg_count",
-                    builder.getI32IntegerAttr(*posOnlyArgCount));
+    codeObjOp->setAttr("pyc.pos_only_arg_count",
+                       builder.getI32IntegerAttr(*posOnlyArgCount));
 #endif
 
 #ifdef PYC_KWONLYARGCOUNT
     auto kwOnlyArgCount = parser.getSInt32();
     if (failed(kwOnlyArgCount))
         return nullptr;
-    codeOp->setAttr("pyc.kw_only_arg_count",
-                    builder.getI32IntegerAttr(*kwOnlyArgCount));
+    codeObjOp->setAttr("pyc.kw_only_arg_count",
+                       builder.getI32IntegerAttr(*kwOnlyArgCount));
 #endif
 
 #ifdef PYC_STACKSIZE
     auto stackSize = parser.getSInt32();
     if (failed(stackSize))
         return nullptr;
-    codeOp->setAttr("pyc.stackSize", builder.getI32IntegerAttr(*stackSize));
+    codeObjOp->setAttr("pyc.stackSize", builder.getI32IntegerAttr(*stackSize));
 #endif
 
 #ifdef PYC_FLAGS
     auto flags = parser.getSInt32();
     if (failed(flags))
         return nullptr;
-    codeOp->setAttr("pyc.flags", builder.getI32IntegerAttr(*flags));
+    codeObjOp->setAttr("pyc.flags", builder.getI32IntegerAttr(*flags));
 #endif
 
 #ifdef PYC_CODE
@@ -150,6 +151,14 @@ mlir::Operation *parseCodeObj(ParserContext &ctx, Parser &parser,
         auto code = builder.create<mlir::pyc::CodeOp>(builder.getUnknownLoc());
         auto *codeBlock = builder.createBlock(&code.getRegion());
         builder.setInsertionPointToEnd(codeBlock);
+        auto type = parser.getUInt8();
+        if (failed(type))
+            return nullptr;
+        auto bytecodeTy = static_cast<ObjectType>(*type & 0x7F);
+        if (bytecodeTy != ObjectType::TYPE_STRING) {
+            llvm::errs() << "expect code section to be in string type\n";
+            return nullptr;
+        }
         auto size = parser.getUInt32();
         if (failed(size))
             return nullptr;
@@ -227,8 +236,8 @@ mlir::Operation *parseCodeObj(ParserContext &ctx, Parser &parser,
     auto firstLineNo = parser.getSInt32();
     if (failed(firstLineNo))
         return nullptr;
-    codeOp->setAttr("pyc.first_line_no",
-                    builder.getI32IntegerAttr(*firstLineNo));
+    codeObjOp->setAttr("pyc.first_line_no",
+                       builder.getI32IntegerAttr(*firstLineNo));
 #endif
 
 #ifdef PYC_LINETABLE
@@ -247,7 +256,7 @@ mlir::Operation *parseCodeObj(ParserContext &ctx, Parser &parser,
         return nullptr;
 #endif
 
-    return codeOp;
+    return codeObjOp;
 }
 
 mlir::pyc::ConstantOp parseString(ObjectType type, Parser &parser,
@@ -305,6 +314,7 @@ mlir::pyc::CollectionOp parseCollectionOp(ObjectType type, ParserContext &ctx,
         switch (type) {
         case ObjectType::TYPE_TUPLE:
         case ObjectType::TYPE_SMALL_TUPLE:
+            collectionType = CollectionType::tuple;
             break;
         case ObjectType::TYPE_LIST:
             collectionType = CollectionType::list;
@@ -395,6 +405,9 @@ mlir::pyc::ConstantOp parsePrimitiveType(ObjectType type, Parser &parser,
         value = builder.getF64FloatAttr(*v);
         break;
     }
+    case ObjectType::TYPE_NONE:
+        value = builder.getZeroAttr(builder.getIntegerType(0));
+        break;
     default:
         llvm::errs() << "invalid/unsupported primitive type\n";
         return {};
@@ -406,7 +419,8 @@ mlir::pyc::ConstantOp parsePrimitiveType(ObjectType type, Parser &parser,
 mlir::Operation *makeRefObject(uint32_t idx, mlir::OpBuilder &builder) {
     std::string refName = getRefSymbolName(idx);
     auto ref = builder.getStringAttr(refName);
-    return builder.create<mlir::pyc::RefOp>(builder.getUnknownLoc(), ref);
+    return builder.create<mlir::pyc::RefOp>(
+        builder.getUnknownLoc(), ref, mlir::pyc::CodeObjectMemberTypeAttr{});
 }
 
 /// NOLINTNEXTLINE
@@ -426,7 +440,7 @@ mlir::Operation *parseObj(ParserContext &ctx, Parser &parser,
 
     // based on object type
     mlir::Operation *res = nullptr;
-    auto objType = static_cast<ObjectType>(*type);
+    auto objType = static_cast<ObjectType>(*type & 0x7F);
     switch (objType) {
     case ObjectType::TYPE_NULL:
         return nullptr;
@@ -460,7 +474,8 @@ mlir::Operation *parseObj(ParserContext &ctx, Parser &parser,
         res = parsePrimitiveType(objType, parser, builder);
         break;
     default:
-        llvm::errs() << "Unsupported obj type '" << *type << "'\n";
+        llvm::errs() << "Unsupported obj type '" << *type << "' ("
+                     << static_cast<uint32_t>(*type) << ")\n";
         return nullptr;
     }
 
@@ -529,6 +544,7 @@ OwningOpRef<Operation *> parseModule(llvm::SourceMgr &srcMgr,
 
     if (failed(parseModule(*buffer, *mod, builder)))
         return {};
+    mod->dump();
     return mod;
 }
 

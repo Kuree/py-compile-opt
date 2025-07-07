@@ -88,7 +88,7 @@ def Pyc_RefCollectionOp : Pyc_Op<"ref_collection", [IsolatedFromAbove, NoTermina
 
 def Pyc_MakeRefOp : Pyc_Op<"make_ref", [IsolatedFromAbove, NoTerminator, SingleBlock, NoRegionArguments, Symbol,
                                         HasParent<"RefCollectionOp">]> {
-    let arguments = (ins SymbolRefAttr:$sym_name);
+    let arguments = (ins SymbolNameAttr:$sym_name);
     let regions = (region SizedRegion<1>:$region);
 
     let assemblyFormat = "$sym_name $region attr-dict";
@@ -96,14 +96,14 @@ def Pyc_MakeRefOp : Pyc_Op<"make_ref", [IsolatedFromAbove, NoTerminator, SingleB
     let hasVerifier = 1;
 }
 
-def Pyc_RefOp : Pyc_Op<"ref", [SymbolUserOpInterface]> {
-  let arguments = (ins FlatSymbolRefAttr:$ref);
+def Pyc_RefOp : Pyc_Op<"ref", [SymbolUserOpInterface, CodeObjectMemberInterface]> {
+  let arguments = (ins FlatSymbolRefAttr:$ref, OptionalAttr<Pyc_CodeObjectMemberType>:$objType);
 
   let extraClassDeclaration = [{
     llvm::LogicalResult verifySymbolUses(::mlir::SymbolTableCollection &symbolTable);
   }];
 
-  let assemblyFormat = "$ref attr-dict";
+  let assemblyFormat = "$ref  ($objType^)? attr-dict";
 }
 
 def Pyc_KeyValuePairOp : Pyc_Op<"pair", [IsolatedFromAbove, NoTerminator, SingleBlock, NoRegionArguments,
