@@ -8,12 +8,13 @@ using namespace mlir;
 
 namespace mlir {
 void registerFromPycTranslation() {
-    TranslateToMLIRRegistration registration{
-        "import-pyyc", "Translate PYC to MLIR",
+    static TranslateToMLIRRegistration registration{
+        "import-pyc", "Translate PYC to MLIR",
         [](llvm::SourceMgr &sourceMgr,
            MLIRContext *context) -> OwningOpRef<Operation *> {
             return mlir::parseModule(sourceMgr, context);
         },
         [](DialectRegistry &registry) { registry.insert<pyc::PycDialect>(); }};
+    (void)registration;
 }
 } // namespace mlir

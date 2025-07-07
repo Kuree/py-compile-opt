@@ -1,19 +1,21 @@
 import argparse
-import httplib2
 import sys
 import re
+import tempfile
+import os
 
-from typing import Dict
-
+import urllib.request
 
 def fetch_marshal() -> str:
     # use the sys info to decide which version to download
     major = sys.version_info.major
     minor = sys.version_info.minor
     url = f"https://raw.githubusercontent.com/python/cpython/refs/heads/{major}.{minor}/Python/marshal.c"
-    http = httplib2.Http()
-    header, data = http.request(url)
-    return data.decode("ascii")
+    with tempfile.TemporaryDirectory() as temp:
+        file = os.path.join(temp, "marshal.c")
+        urllib.request.urlretrieve(url, file)
+        with open(file, "r") as f:
+            return f.read()
 
 
 def generate_logic(content: str, filename: str):

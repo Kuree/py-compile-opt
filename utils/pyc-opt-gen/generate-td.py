@@ -169,9 +169,10 @@ def generate_td(filename: str, op_defs: Dict[str, PycOp]):
     for [_, op_def] in op_defs.items():
         content += f"""
     case ({op_def.value}):
-        opName = "{op_def.asm_name}";
+        opName = "pyc.{op_def.asm_name}";
         break;"""
-    content += """default: return nullptr;
+    content += """
+    default: return nullptr;
     }
 #endif // GENERATE_PARSER    
     """

@@ -519,7 +519,9 @@ OwningOpRef<Operation *> parseModule(llvm::SourceMgr &srcMgr,
         llvm::errs() << "Only one buffer supported\n";
         return {};
     }
-    auto buffer = srcMgr.getMemoryBuffer(0);
+    ctx->loadAllAvailableDialects();
+
+    auto buffer = srcMgr.getMemoryBuffer(srcMgr.getMainFileID());
     OpBuilder builder(ctx);
     auto loc = mlir::FileLineColLoc::get(
         builder.getStringAttr(buffer->getBufferIdentifier()), 0, 0);

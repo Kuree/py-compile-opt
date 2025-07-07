@@ -52,7 +52,7 @@ def StackUnchanged : NativeOpTrait<"StackUnchanged"> {
   let cppNamespace = "::mlir::pyc";
 }
 
-def Pyc_CodeObjectOp : Pyc_Op<"code", [IsolatedFromAbove, NoTerminator, SingleBlock, NoRegionArguments]> {
+def Pyc_CodeObjectOp : Pyc_Op<"code_obj", [IsolatedFromAbove, NoTerminator, SingleBlock, NoRegionArguments]> {
   let regions = (region SizedRegion<1>:$region);
 
   let assemblyFormat = "$region attr-dict";

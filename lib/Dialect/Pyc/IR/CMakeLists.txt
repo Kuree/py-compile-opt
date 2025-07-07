@@ -7,8 +7,4 @@ add_mlir_dialect_library(MLIRPycDialect
         DEPENDS
         MLIRPycOpsIncGen
         MLIRPycOpsInterfacesIncGen
-
-        LINK_LIBS PUBLIC
-        MLIRDialect
-        MLIRIR
 )
