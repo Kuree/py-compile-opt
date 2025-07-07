@@ -46,15 +46,8 @@ struct ParserContext {
         return idx;
     }
 
-    void internalize(mlir::StringAttr str) { internalStrs.emplace_back(str); }
-
-    mlir::StringAttr getInternalizedStr(uint32_t idx) {
-        return internalStrs[idx];
-    }
-
   private:
     mlir::pyc::RefCollectionOp refs;
-    llvm::SmallVector<mlir::StringAttr> internalStrs = {};
 
     uint32_t refCount = 0;
 };
@@ -67,7 +60,7 @@ class Parser {
     auto getUInt8() { return parseBytes<uint8_t>(); }
     auto getSInt8() { return parseBytes<int8_t>(); }
     auto getUInt16() { return parseBytes<uint16_t>(); }
-    auto getSInt16() { return parseBytes<int16_t>(); }
+    [[maybe_unused]] auto getSInt16() { return parseBytes<int16_t>(); }
     auto getUInt32() { return parseBytes<uint32_t>(); }
     auto getSInt32() { return parseBytes<int32_t>(); }
     auto getDouble() { return parseBytes<double>(); }
@@ -102,6 +95,7 @@ class Parser {
 mlir::Operation *parseObj(ParserContext &ctx, Parser &parser,
                           mlir::OpBuilder &builder);
 
+// NOLINTNEXTLINE
 mlir::Operation *parseCodeObj(ParserContext &ctx, Parser &parser,
                               mlir::OpBuilder &builder) {
     auto codeOp = builder.create<mlir::pyc::CodeOp>(builder.getUnknownLoc());
@@ -150,6 +144,25 @@ mlir::Operation *parseCodeObj(ParserContext &ctx, Parser &parser,
 
 #ifdef PYC_CODE
     // need to create ops
+    // specialized parsing on the byte code
+    {
+        mlir::OpBuilder::InsertionGuard codeGuard(builder);
+        auto code = builder.create<mlir::pyc::CodeOp>(builder.getUnknownLoc());
+        auto *codeBlock = builder.createBlock(&code.getRegion());
+        builder.setInsertionPointToEnd(codeBlock);
+        auto size = parser.getUInt32();
+        if (failed(size))
+            return nullptr;
+        assert(*size % 2 == 0);
+        for (auto i = 0u; i < *size / 2; i++) {
+            auto opCode = parser.getUInt8();
+            auto opArg = parser.getUInt8();
+            if (failed(opCode) || failed(opArg))
+                return nullptr;
+            mlir::pyc::PycDialect::parseOperation(
+                *opCode, *opArg, builder.getUnknownLoc(), builder);
+        }
+    }
 
 #endif
 
@@ -237,8 +250,8 @@ mlir::Operation *parseCodeObj(ParserContext &ctx, Parser &parser,
     return codeOp;
 }
 
-mlir::pyc::ConstantOp parseString(ObjectType type, ParserContext &ctx,
-                                  Parser &parser, mlir::OpBuilder &builder) {
+mlir::pyc::ConstantOp parseString(ObjectType type, Parser &parser,
+                                  mlir::OpBuilder &builder) {
     int32_t size;
     if (type == ObjectType::TYPE_SHORT_ASCII ||
         type == ObjectType::TYPE_SHORT_ASCII_INTERNED) {
@@ -264,6 +277,7 @@ mlir::pyc::ConstantOp parseString(ObjectType type, ParserContext &ctx,
         builder.getUnknownLoc(), attr, mlir::pyc::CodeObjectMemberTypeAttr{});
 }
 
+// NOLINTNEXTLINE
 mlir::pyc::CollectionOp parseCollectionOp(ObjectType type, ParserContext &ctx,
                                           Parser &parser,
                                           mlir::OpBuilder &builder) {
@@ -395,6 +409,7 @@ mlir::Operation *makeRefObject(uint32_t idx, mlir::OpBuilder &builder) {
     return builder.create<mlir::pyc::RefOp>(builder.getUnknownLoc(), ref);
 }
 
+/// NOLINTNEXTLINE
 mlir::Operation *parseObj(ParserContext &ctx, Parser &parser,
                           mlir::OpBuilder &builder) {
     auto type = parser.getUInt8();
@@ -422,7 +437,7 @@ mlir::Operation *parseObj(ParserContext &ctx, Parser &parser,
     case ObjectType::TYPE_STRING:
     case ObjectType::TYPE_INTERNED:
     case ObjectType::TYPE_UNICODE:
-        res = parseString(objType, ctx, parser, builder);
+        res = parseString(objType, parser, builder);
         break;
     case ObjectType::TYPE_TUPLE:
     case ObjectType::TYPE_LIST:
