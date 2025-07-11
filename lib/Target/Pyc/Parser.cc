@@ -224,7 +224,7 @@ mlir::Operation *parseCodeObj(ParserContext &ctx, Parser &parser,
 #ifdef PYC_EXCEPTIONTABLE
     if (auto table = dyn_cast_or_null<mlir::pyc::CodeObjectMember>(
             parseObj(ctx, parser, builder)))
-        table.setMemberType(mlir::pyc::CodeObjectMemberType::LineTable);
+        table.setMemberType(mlir::pyc::CodeObjectMemberType::ExceptionTable);
     else
         return nullptr;
 #endif
@@ -467,9 +467,12 @@ mlir::Operation *parseObj(ParserContext &ctx, Parser &parser,
         // flag set, move it to the reference collection
         // and replace it with a ref
         auto name = getRefSymbolName(*ref);
-        res->setAttr("reference",
-                     mlir::FlatSymbolRefAttr::get(builder.getStringAttr(name)));
-
+        auto referenceOp = dyn_cast<mlir::pyc::ReferencableObjectInterface>(res);
+        if (!referenceOp) {
+            llvm::errs() << "Unable to makre a reference object\n";
+            return nullptr;
+        }
+        referenceOp.setReference(builder.getStringAttr(name));
         ctx.addRefOp(name, builder);
     }
     return res;
