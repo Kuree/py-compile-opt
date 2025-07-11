@@ -1,8 +1,6 @@
 #include "mlir/Target/Pyc/Parser.hh"
 #include "mlir/Dialect/Pyc/IR/Pyc.hh"
 
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/FormatVariadic.h"
 
@@ -467,7 +465,8 @@ mlir::Operation *parseObj(ParserContext &ctx, Parser &parser,
         // flag set, move it to the reference collection
         // and replace it with a ref
         auto name = getRefSymbolName(*ref);
-        auto referenceOp = dyn_cast<mlir::pyc::ReferencableObjectInterface>(res);
+        auto referenceOp =
+            dyn_cast<mlir::pyc::ReferencableObjectInterface>(res);
         if (!referenceOp) {
             llvm::errs() << "Unable to makre a reference object\n";
             return nullptr;
@@ -476,50 +475,6 @@ mlir::Operation *parseObj(ParserContext &ctx, Parser &parser,
         ctx.addRefOp(name, builder);
     }
     return res;
-}
-
-struct ConvertCodeObject : mlir::OpRewritePattern<mlir::pyc::ConstantOp> {
-    using mlir::OpRewritePattern<mlir::pyc::ConstantOp>::OpRewritePattern;
-
-    mlir::LogicalResult
-    matchAndRewrite(mlir::pyc::ConstantOp op,
-                    mlir::PatternRewriter &rewriter) const override {
-        // has to be code object type
-        auto type = op.getObjType();
-        if (type != mlir::pyc::CodeObjectMemberType::Code)
-            return failure();
-
-        auto byteCode = dyn_cast<mlir::StringAttr>(op.getValue());
-        if (!byteCode) {
-            return op->emitOpError("invalid bytecode object");
-        }
-
-        Parser parser{byteCode.getValue()};
-        rewriter.setInsertionPoint(op);
-        auto code =
-            rewriter.create<mlir::pyc::CodeOp>(rewriter.getUnknownLoc());
-        auto *codeBlock = rewriter.createBlock(&code.getRegion());
-        rewriter.setInsertionPointToEnd(codeBlock);
-        auto size = byteCode.size();
-        assert(size % 2 == 0);
-        for (auto i = 0u; i < size / 2; i++) {
-            auto opCode = parser.getUInt8();
-            auto opArg = parser.getUInt8();
-            if (failed(opCode) || failed(opArg))
-                return op->emitOpError("Unable to decode bytecode");
-            mlir::pyc::PycDialect::parseOperation(
-                *opCode, *opArg, rewriter.getUnknownLoc(), rewriter);
-        }
-        rewriter.eraseOp(op);
-        return success();
-    }
-};
-
-mlir::LogicalResult parseByteCode(mlir::Operation *rootOp) {
-    auto *ctx = rootOp->getContext();
-    mlir::RewritePatternSet patterns(ctx);
-    patterns.insert<ConvertCodeObject>(ctx);
-    return mlir::applyPatternsAndFoldGreedily(rootOp, std::move(patterns));
 }
 
 } // namespace
@@ -559,8 +514,7 @@ LogicalResult parseModule(const llvm::MemoryBuffer &buffer, ModuleOp moduleOp,
 
     builder.setInsertionPointToEnd(moduleOp.getBody());
     ParserContext parserContext(moduleOp);
-    return success(parseObj(parserContext, parser, builder) &&
-                   succeeded(parseByteCode(moduleOp)));
+    return success(parseObj(parserContext, parser, builder));
 }
 
 OwningOpRef<Operation *> parseModule(llvm::SourceMgr &srcMgr,
