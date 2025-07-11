@@ -10,6 +10,7 @@ configure_lit_site_cfg(
 set (MLIR_TEST_DEPENDS
         FileCheck count not
         pyc-translate
+        pyc-opt
 )
 
 add_lit_testsuite(check-py "Running the py-compile-opt regression tests"

@@ -38,7 +38,7 @@ struct ConvertCodeObject : mlir::OpRewritePattern<mlir::pyc::ConstantOp> {
         assert(size % 2 == 0);
         for (auto i = 0u; i < size / 2; i++) {
             uint8_t opCode = buffer[i * 2];
-            uint8_t opArg = buffer[i * 2 + 1];
+            int8_t opArg = buffer[i * 2 + 1];
             mlir::pyc::PycDialect::parseOperation(
                 opCode, opArg, rewriter.getUnknownLoc(), rewriter);
         }

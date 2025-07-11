@@ -46,7 +46,8 @@ llvm_config.with_environment("PATH", config.llvm_tools_dir, append_path=True)
 tool_dirs = [config.project_tools_dir, config.llvm_tools_dir]
 tools = [
     "pyc-translate",
-    "cpython-pyc"
+    "cpython-pyc",
+    "pyc-opt"
 ]
 tool_dirs.append(os.path.dirname(config.cpython_pyc_driver_path))
 
