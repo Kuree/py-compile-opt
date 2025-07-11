@@ -15,6 +15,7 @@ add_mlir_library(MLIRPycTarget
     LINK_LIBS
     LLVMSupport
     MLIRPycDialect
+    MLIRTransforms
 
     DEPENDS
     PycGeneratedParser

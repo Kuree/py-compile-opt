@@ -71,6 +71,12 @@ def Pyc_ConstantOp : Pyc_Op<"constant", [CodeObjectMemberInterface, Referencable
    let arguments = (ins TypedAttrInterface:$value, DefaultValuedOptionalAttr<SymbolNameAttr, "{}">:$reference,
                     OptionalAttr<Pyc_CodeObjectMemberType>:$objType);
 
+    let builders = [
+      OpBuilder<(ins "TypedAttr":$attr), [{
+        $_state.addAttribute("value", attr);
+      }]>,
+    ];
+
    let assemblyFormat = "($reference^)? $value ($objType^)? attr-dict";
 }
 
@@ -79,6 +85,13 @@ def Pyc_CollectionOp : Pyc_Op<"collection", [IsolatedFromAbove, NoTerminator, Si
   let arguments = (ins Pyc_CollectionType:$collectionType, DefaultValuedOptionalAttr<SymbolNameAttr, "{}">:$reference,
                    OptionalAttr<Pyc_CodeObjectMemberType>:$objType);
   let regions = (region SizedRegion<1>:$region);
+
+  let builders = [
+    OpBuilder<(ins "CollectionType":$type), [{
+      $_state.addAttribute("collectionType", $_builder.getAttr<CollectionTypeAttr>(type));
+      $_state.addRegion();
+    }]>,
+  ];
 
   let assemblyFormat = "($reference^)? $collectionType ($objType^)? $region attr-dict";
 }

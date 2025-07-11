@@ -1,6 +1,8 @@
 #include "mlir/Target/Pyc/Parser.hh"
 #include "mlir/Dialect/Pyc/IR/Pyc.hh"
 
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/FormatVariadic.h"
 
@@ -18,17 +20,17 @@ std::string getRefSymbolName(uint32_t idx) {
     return llvm::formatv("ref_{0}", idx);
 }
 
+uint8_t constexpr kTypeObjRef = 0x80;
+
 struct ParserContext {
-    ParserContext(mlir::ModuleOp moduleOp, mlir::OpBuilder &builder)
-        : moduleOp(moduleOp) {}
+    explicit ParserContext(mlir::ModuleOp moduleOp) : moduleOp(moduleOp) {}
 
     mlir::OpBuilder::InsertPoint getRefInsertionPoint() {
         auto *block = moduleOp.getBody();
         return {block, block->end()};
     }
 
-    void addRefOp(mlir::StringRef refName, mlir::Operation *op,
-                  mlir::OpBuilder &builder) {
+    void addRefOp(mlir::StringRef refName, mlir::OpBuilder &builder) {
         mlir::OpBuilder::InsertionGuard guard(builder);
         builder.restoreInsertionPoint(getRefInsertionPoint());
         builder.create<mlir::pyc::MakeRefOp>(builder.getUnknownLoc(), refName);
@@ -46,6 +48,7 @@ class Parser {
   public:
     explicit Parser(const llvm::MemoryBuffer &buffer)
         : buffer(buffer.getBuffer()), pos(0) {}
+    explicit Parser(llvm::StringRef buffer) : buffer(buffer), pos(0) {}
 
     auto getUInt8() { return parseBytes<uint8_t>(); }
     auto getSInt8() { return parseBytes<int8_t>(); }
@@ -134,34 +137,14 @@ mlir::Operation *parseCodeObj(ParserContext &ctx, Parser &parser,
 #endif
 
 #ifdef PYC_CODE
-    // need to create ops
-    // specialized parsing on the byte code
-    {
-        mlir::OpBuilder::InsertionGuard codeGuard(builder);
-        auto code = builder.create<mlir::pyc::CodeOp>(builder.getUnknownLoc());
-        auto *codeBlock = builder.createBlock(&code.getRegion());
-        builder.setInsertionPointToEnd(codeBlock);
-        auto type = parser.getUInt8();
-        if (failed(type))
-            return nullptr;
-        auto bytecodeTy = static_cast<ObjectType>(*type & 0x7F);
-        if (bytecodeTy != ObjectType::TYPE_STRING) {
-            llvm::errs() << "expect code section to be in string type\n";
-            return nullptr;
-        }
-        auto size = parser.getUInt32();
-        if (failed(size))
-            return nullptr;
-        assert(*size % 2 == 0);
-        for (auto i = 0u; i < *size / 2; i++) {
-            auto opCode = parser.getUInt8();
-            auto opArg = parser.getUInt8();
-            if (failed(opCode) || failed(opArg))
-                return nullptr;
-            mlir::pyc::PycDialect::parseOperation(
-                *opCode, *opArg, builder.getUnknownLoc(), builder);
-        }
-    }
+
+    // for now, we just load the code as raw string
+    // then replace it later
+    if (auto code = dyn_cast_or_null<mlir::pyc::CodeObjectMember>(
+            parseObj(ctx, parser, builder)))
+        code.setMemberType(mlir::pyc::CodeObjectMemberType::Code);
+    else
+        return nullptr;
 
 #endif
 
@@ -272,9 +255,7 @@ mlir::pyc::ConstantOp parseString(ObjectType type, Parser &parser,
         return {};
     auto attr = builder.getStringAttr(*str);
 
-    return builder.create<mlir::pyc::ConstantOp>(
-        builder.getUnknownLoc(), attr, mlir::StringAttr{},
-        mlir::pyc::CodeObjectMemberTypeAttr{});
+    return builder.create<mlir::pyc::ConstantOp>(builder.getUnknownLoc(), attr);
 }
 
 // NOLINTNEXTLINE
@@ -285,8 +266,7 @@ mlir::pyc::CollectionOp parseCollectionOp(ObjectType type, ParserContext &ctx,
     if (type == ObjectType::TYPE_DICT) {
         // this is null terminated
         auto res = builder.create<mlir::pyc::CollectionOp>(
-            builder.getUnknownLoc(), CollectionType::dict, mlir::StringAttr{},
-            mlir::pyc::CodeObjectMemberTypeAttr{});
+            builder.getUnknownLoc(), CollectionType::dict);
         mlir::OpBuilder::InsertionGuard guard(builder);
         auto *block = builder.createBlock(&res.getBodyRegion());
         builder.setInsertionPointToEnd(block);
@@ -335,8 +315,7 @@ mlir::pyc::CollectionOp parseCollectionOp(ObjectType type, ParserContext &ctx,
             size = *s;
         }
         auto res = builder.create<mlir::pyc::CollectionOp>(
-            builder.getUnknownLoc(), collectionType, mlir::StringAttr{},
-            mlir::pyc::CodeObjectMemberTypeAttr{});
+            builder.getUnknownLoc(), collectionType);
         mlir::OpBuilder::InsertionGuard guard(builder);
         auto *block = builder.createBlock(&res.getBodyRegion());
         builder.setInsertionPointToEnd(block);
@@ -421,7 +400,7 @@ mlir::Operation *parseObj(ParserContext &ctx, Parser &parser,
     auto type = parser.getUInt8();
     if (failed(type))
         return nullptr;
-    uint8_t constexpr kTypeObjRef = 0x80;
+
     if (type == static_cast<int8_t>(ObjectType::TYPE_REF)) {
         auto idx = parser.getUInt32();
         if (failed(idx))
@@ -433,6 +412,18 @@ mlir::Operation *parseObj(ParserContext &ctx, Parser &parser,
     // based on object type
     mlir::Operation *res = nullptr;
     auto objType = static_cast<ObjectType>(*type & 0x7F);
+
+    if (objType == ObjectType::TYPE_NULL) {
+        // don't care
+        return nullptr;
+    }
+
+    // make reference to this object before we start parsing
+    std::optional<uint32_t> ref;
+    if (*type & kTypeObjRef) {
+        ref = ctx.getNextRefCount();
+    }
+
     switch (objType) {
     case ObjectType::TYPE_NULL:
         return nullptr;
@@ -471,16 +462,61 @@ mlir::Operation *parseObj(ParserContext &ctx, Parser &parser,
         return nullptr;
     }
 
-    if (*type & kTypeObjRef && res) {
+    if (ref) {
+        assert(res);
         // flag set, move it to the reference collection
         // and replace it with a ref
-        auto idx = ctx.getNextRefCount();
-        auto name = getRefSymbolName(idx);
+        auto name = getRefSymbolName(*ref);
         res->setAttr("reference",
                      mlir::FlatSymbolRefAttr::get(builder.getStringAttr(name)));
-        ctx.addRefOp(name, res, builder);
+
+        ctx.addRefOp(name, builder);
     }
     return res;
+}
+
+struct ConvertCodeObject : mlir::OpRewritePattern<mlir::pyc::ConstantOp> {
+    using mlir::OpRewritePattern<mlir::pyc::ConstantOp>::OpRewritePattern;
+
+    mlir::LogicalResult
+    matchAndRewrite(mlir::pyc::ConstantOp op,
+                    mlir::PatternRewriter &rewriter) const override {
+        // has to be code object type
+        auto type = op.getObjType();
+        if (type != mlir::pyc::CodeObjectMemberType::Code)
+            return failure();
+
+        auto byteCode = dyn_cast<mlir::StringAttr>(op.getValue());
+        if (!byteCode) {
+            return op->emitOpError("invalid bytecode object");
+        }
+
+        Parser parser{byteCode.getValue()};
+        rewriter.setInsertionPoint(op);
+        auto code =
+            rewriter.create<mlir::pyc::CodeOp>(rewriter.getUnknownLoc());
+        auto *codeBlock = rewriter.createBlock(&code.getRegion());
+        rewriter.setInsertionPointToEnd(codeBlock);
+        auto size = byteCode.size();
+        assert(size % 2 == 0);
+        for (auto i = 0u; i < size / 2; i++) {
+            auto opCode = parser.getUInt8();
+            auto opArg = parser.getUInt8();
+            if (failed(opCode) || failed(opArg))
+                return op->emitOpError("Unable to decode bytecode");
+            mlir::pyc::PycDialect::parseOperation(
+                *opCode, *opArg, rewriter.getUnknownLoc(), rewriter);
+        }
+        rewriter.eraseOp(op);
+        return success();
+    }
+};
+
+mlir::LogicalResult parseByteCode(mlir::Operation *rootOp) {
+    auto *ctx = rootOp->getContext();
+    mlir::RewritePatternSet patterns(ctx);
+    patterns.insert<ConvertCodeObject>(ctx);
+    return mlir::applyPatternsAndFoldGreedily(rootOp, std::move(patterns));
 }
 
 } // namespace
@@ -519,8 +555,9 @@ LogicalResult parseModule(const llvm::MemoryBuffer &buffer, ModuleOp moduleOp,
     }
 
     builder.setInsertionPointToEnd(moduleOp.getBody());
-    ParserContext parserContext(moduleOp, builder);
-    return success(parseObj(parserContext, parser, builder));
+    ParserContext parserContext(moduleOp);
+    return success(parseObj(parserContext, parser, builder) &&
+                   succeeded(parseByteCode(moduleOp)));
 }
 
 OwningOpRef<Operation *> parseModule(llvm::SourceMgr &srcMgr,
@@ -539,7 +576,6 @@ OwningOpRef<Operation *> parseModule(llvm::SourceMgr &srcMgr,
 
     if (failed(parseModule(*buffer, *mod, builder)))
         return {};
-    mod->dump();
     return mod;
 }
 
