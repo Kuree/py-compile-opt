@@ -4,7 +4,11 @@
 include "mlir/Pass/PassBase.td"
 
 def DecodeByteCode: Pass<"decode-byte-code"> {
-	let summary = "Decode python bytecode instructions";
+  let summary = "Decode python bytecode instructions";
+}
+
+def DecodeSourceLocation : Pass<"decode-source-location"> {
+  let summary = "Decode python source location";
 }
 
 #endif
