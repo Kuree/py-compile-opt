@@ -68,7 +68,7 @@ def Pyc_CodeOp : Pyc_Op<"code", [IsolatedFromAbove, NoTerminator, SingleBlock, N
 }
 
 def Pyc_ConstantOp : Pyc_Op<"constant", [CodeObjectMemberInterface, ReferencableObjectInterface]> {
-   let arguments = (ins TypedAttrInterface:$value, DefaultValuedOptionalAttr<SymbolNameAttr, "{}">:$reference,
+   let arguments = (ins TypedAttrInterface:$value, DefaultValuedOptionalAttr<FlatSymbolRefAttr, "{}">:$reference,
                     OptionalAttr<Pyc_CodeObjectMemberType>:$objType);
 
     let builders = [
@@ -82,7 +82,7 @@ def Pyc_ConstantOp : Pyc_Op<"constant", [CodeObjectMemberInterface, Referencable
 
 def Pyc_CollectionOp : Pyc_Op<"collection", [IsolatedFromAbove, NoTerminator, SingleBlock, NoRegionArguments,
                                              CodeObjectMemberInterface, ReferencableObjectInterface]> {
-  let arguments = (ins Pyc_CollectionType:$collectionType, DefaultValuedOptionalAttr<SymbolNameAttr, "{}">:$reference,
+  let arguments = (ins Pyc_CollectionType:$collectionType, DefaultValuedOptionalAttr<FlatSymbolRefAttr, "{}">:$reference,
                    OptionalAttr<Pyc_CodeObjectMemberType>:$objType);
   let regions = (region SizedRegion<1>:$region);
 

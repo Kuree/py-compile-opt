@@ -1,6 +1,7 @@
 add_mlir_library(MLIRPycTransforms
         DecodeByteCode.cc
         DecodeSourceLocation.cc
+        ElaborateReferences.cc
 
         ADDITIONAL_HEADER_DIRS
 

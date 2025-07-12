@@ -11,4 +11,8 @@ def DecodeSourceLocation : Pass<"decode-source-location"> {
   let summary = "Decode python source location";
 }
 
+def ElaborateReference : Pass<"elaborate-reference"> {
+  let summary = "Elaborate references";
+}
+
 #endif

@@ -11,7 +11,7 @@ namespace {
 using mlir::failure;
 using mlir::success;
 
-struct ConvertLineTable : mlir::OpRewritePattern<mlir::pyc::ConstantOp> {
+struct ConvertConstantToCodeOp : mlir::OpRewritePattern<mlir::pyc::ConstantOp> {
     using mlir::OpRewritePattern<mlir::pyc::ConstantOp>::OpRewritePattern;
 
     mlir::LogicalResult
@@ -50,7 +50,7 @@ struct ConvertLineTable : mlir::OpRewritePattern<mlir::pyc::ConstantOp> {
 struct DecodeByteCode : impl::DecodeByteCodeBase<DecodeByteCode> {
     void runOnOperation() override {
         mlir::RewritePatternSet patterns(&getContext());
-        patterns.insert<ConvertLineTable>(&getContext());
+        patterns.insert<ConvertConstantToCodeOp>(&getContext());
         if (failed(mlir::applyPatternsAndFoldGreedily(getOperation(),
                                                       std::move(patterns))))
             return signalPassFailure();
